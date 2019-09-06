@@ -2,51 +2,52 @@
 # -*- coding: utf-8 -*-
 
 """
-Created on 2019/07/04
-@author: lujie
+Created on 2019/09/08
+@author: relu
 """
 
 from torch import nn
 from basenets import resnet
 from collections import OrderedDict
-from detectlib import GeneralizedRCNN
+from detectlib import FasterRCNN
+from modules import FPN, RPN, RoI
 from utils.misc import FrozenBatchNorm2d
-from modules import FPN, LastLevelMaxPool, RPN, RoIHeads
 
+from utils.transform import GeneralTrans
 from basenets._utils import IntermediateLayerGetter
 from basenets.utils import load_state_dict_from_url
-from utils.transform import GeneralizedRCNNTransform
 
 from IPython import embed
+
 
 __all__ = ["fasterrcnn_resnet50_fpn"]
 
 
 class BackboneWithFPN(nn.Sequential):
     ''' Return the dict of feature_map of selected layers '''
+    # Note : nn.Sequential
 
-    def __init__(self, backbone, return_layers, in_channels_list, out_channels):
+    def __init__(self, basebone, return_layers, in_channels_list, out_channels):
 
         # pick up the feature_map whose name in return_layers
-        body = IntermediateLayerGetter(backbone, return_layers=return_layers)
-
-        fpn  = FPN(in_channels_list, out_channels, LastLevelMaxPool())
+        body = IntermediateLayerGetter(basebone, return_layers=return_layers)
+        fpn  = FPN(in_channels_list, out_channels, with_tmp=True)
 
         super(BackboneWithFPN, self).__init__(OrderedDict([("body", body), ("fpn", fpn)]))
 
         self.out_channels = out_channels
 
 
-class FasterRCNN_Resnet(GeneralizedRCNN):
+class FasterRCNN_Resnet(FasterRCNN):
 
     def __init__(self, num_classes, basenet = 'resnet50', pretrain = True):
 
+        gener_trans = GeneralTrans()
         backbone    = self._backbone(basenet)
         rpn         = RPN(backbone.out_channels)
-        roi_heads   = RoIHeads(num_classes, backbone.out_channels)
-        grcnn_trans = GeneralizedRCNNTransform()
-
-        super(FasterRCNN_Resnet, self).__init__(backbone, rpn, roi_heads, grcnn_trans)
+        roi_heads   = RoI(num_classes, backbone.out_channels)
+        
+        super(FasterRCNN_Resnet, self).__init__(backbone, rpn, roi_heads, gener_trans)
 
 
     def _backbone(self, basenet, with_fpn = True):
@@ -77,7 +78,7 @@ def fasterrcnn_resnet50_fpn(num_classes = 91, basenet = 'resnet50', with_fpn = T
         cp_urls = 'https://download.pytorch.org/models/fasterrcnn_resnet50_fpn_coco-258fb6c6.pth'
 
     model = FasterRCNN_Resnet(num_classes, basenet)
-    embed()
+
     if pretrained:
         state_dict = load_state_dict_from_url(cp_urls, progress=True)
         model.load_state_dict(state_dict)

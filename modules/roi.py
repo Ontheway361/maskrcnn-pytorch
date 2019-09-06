@@ -10,12 +10,14 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-import utils.boxes as box_ops
+import utils.bbox_utils as box_ops
 import utils.misc as misc_nn_ops
 import utils.rpn_utils as det_utils
 import utils.roi_align as roi_align
-from modules.default_cfg import RoI_CFG
+from modules.cfg import RoI_CFG
 from utils.poolers import MultiScaleRoIAlign
+
+from IPython import embed
 
 
 class TwoMLPHead(nn.Module):
@@ -65,12 +67,12 @@ class Predictor(nn.Module):
         return scores, bbox_deltas
 
 
-class RoIHeads(nn.Module):
+class RoI(nn.Module):
 
 
     def __init__(self, num_classes, out_channels):
 
-        super(RoIHeads, self).__init__()
+        super(RoI, self).__init__()
 
         self.box_similarity = box_ops.box_iou
         # assign ground-truth boxes for each proposal
@@ -99,6 +101,16 @@ class RoIHeads(nn.Module):
                                  RoI_CFG['representation_size'])
 
         self.box_predictor = Predictor(RoI_CFG['representation_size'], num_classes)
+
+
+    def check_targets(self, targets):
+        ''' Check the target '''
+
+        assert targets is not None
+        assert all("boxes" in t for t in targets)
+        assert all("labels" in t for t in targets)
+        if self.has_mask:
+            assert all("masks" in t for t in targets)
 
 
     def add_gt_proposals(self, proposals, gt_boxes):
@@ -146,17 +158,11 @@ class RoIHeads(nn.Module):
         return sampled_inds
 
 
-    def check_targets(self, targets):
-        assert targets is not None
-        assert all("boxes" in t for t in targets)
-        assert all("labels" in t for t in targets)
-        if self.has_mask:
-            assert all("masks" in t for t in targets)
-
-
     def select_training_samples(self, proposals, targets):
+        ''' '''
+
         self.check_targets(targets)
-        gt_boxes = [t["boxes"] for t in targets]
+        gt_boxes  = [t["boxes"] for t in targets]
         gt_labels = [t["labels"] for t in targets]
 
         # append ground-truth bboxes to propos
@@ -270,13 +276,7 @@ class RoIHeads(nn.Module):
 
 
     def forward(self, features, proposals, image_shapes, targets=None):
-        """
-        Arguments:
-            features (List[Tensor])
-            proposals (List[Tensor[N, 4]])
-            image_shapes (List[Tuple[H, W]])
-            targets (List[Dict])
-        """
+
         if self.training:
             proposals, matched_idxs, labels, regression_targets = self.select_training_samples(proposals, targets)
 

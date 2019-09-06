@@ -32,11 +32,12 @@ class ExtraFPNBlock(nn.Module):
 class LastLevelMaxPool(ExtraFPNBlock):
     """ Applies a max_pool2d on top of the last feature map """
 
-    def forward(self, x, y, names):
+    def forward(self, results, names):   # BUG
 
         names.append("pool")
-        x.append(F.max_pool2d(x[-1], 1, 2, 0))
-        return x, names
+        # kernel_size=1, stride=2, padding=0
+        results.append(F.max_pool2d(results[-1], 1, 2, 0))
+        return results, names
 
 
 class LastLevelP6P7(ExtraFPNBlock):
@@ -80,26 +81,9 @@ class FPN(nn.Module):
             be performed. It is expected to take the fpn features, the original
             features and the names of the original features as input, and returns
             a new list of feature maps and their corresponding names
-
-    Examples::
-
-        >>> m = torchvision.ops.FeaturePyramidNetwork([10, 20, 30], 5)
-        >>> # get some dummy data
-        >>> x = OrderedDict()
-        >>> x['feat0'] = torch.rand(1, 10, 64, 64)
-        >>> x['feat2'] = torch.rand(1, 20, 16, 16)
-        >>> x['feat3'] = torch.rand(1, 30, 8, 8)
-        >>> # compute the FPN on top of x
-        >>> output = m(x)
-        >>> print([(k, v.shape) for k, v in output.items()])
-        >>> # returns
-        >>>   [('feat0', torch.Size([1, 5, 64, 64])),
-        >>>    ('feat2', torch.Size([1, 5, 16, 16])),
-        >>>    ('feat3', torch.Size([1, 5, 8, 8]))]
-
     """
 
-    def __init__(self, in_channels_list, out_channels, extra_blocks=None):
+    def __init__(self, in_channels_list, out_channels, with_tmp=True):
 
         super(FPN, self).__init__()
 
@@ -123,9 +107,8 @@ class FPN(nn.Module):
                 nn.init.kaiming_uniform_(m.weight, a=1)
                 nn.init.constant_(m.bias, 0)
 
-        if extra_blocks is not None:
-            assert isinstance(extra_blocks, ExtraFPNBlock)
-        self.extra_blocks = extra_blocks
+        if with_tmp:
+            self.extra_blocks = LastLevelMaxPool()
 
 
     def forward(self, x):
@@ -133,7 +116,7 @@ class FPN(nn.Module):
         Computes the FPN for a set of feature maps.
 
         Arguments:
-            x (OrderedDict[Tensor]): feature maps for each feature level.
+            x (OrderedDict[Tensor]): feature maps[bottom -> top]
 
         Returns:
             results (OrderedDict[Tensor]): feature maps after FPN layers.
@@ -146,8 +129,11 @@ class FPN(nn.Module):
         last_inner = self.inner_blocks[-1](x[-1])
         results = []
         results.append(self.layer_blocks[-1](last_inner))
+
+        # from top to bottom
         layer_iter = zip(x[:-1][::-1], self.inner_blocks[:-1][::-1], self.layer_blocks[:-1][::-1])
 
+        # the resolution of result from high to low
         for feature, inner_block, layer_block in layer_iter:
 
             if not inner_block:
@@ -156,10 +142,10 @@ class FPN(nn.Module):
             feat_shape = inner_lateral.shape[-2:]
             inner_top_down = F.interpolate(last_inner, size=feat_shape, mode="nearest")
             last_inner = inner_lateral + inner_top_down
-            results.insert(0, layer_block(last_inner))
+            results.insert(0, layer_block(last_inner))   # store-style : bottom to head
 
         if self.extra_blocks is not None:
-            results, names = self.extra_blocks(results, x, names)
+            results, names = self.extra_blocks(results, names) # BUG
 
         # make it back an OrderedDict
         out = OrderedDict([(k, v) for k, v in zip(names, results)])

@@ -35,8 +35,8 @@ RoI_CFG = {
 }
 
 TRANS_CFG = {
-    'min_size' : 800,
-    'max_size' : 1333,
+    'min_size' : 800,        # short-side
+    'max_size' : 1333,       # long-side
     'img_mean' : [0.485, 0.456, 0.406],
     'img_std'  : [0.229, 0.224, 0.225],
 }
