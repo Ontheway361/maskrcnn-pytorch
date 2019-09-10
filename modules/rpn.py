@@ -64,6 +64,7 @@ class RPN(nn.Module):
 
 
     def assign_targets_to_anchors(self, anchors, targets):
+        ''' Assign a label and a gt_box for each anchor '''
 
         labels, matched_gt_boxes = [], []
         for anchors_per_image, targets_per_image in zip(anchors, targets):
@@ -71,10 +72,7 @@ class RPN(nn.Module):
             gt_boxes = targets_per_image["boxes"]
             match_quality_matrix = self.box_similarity(gt_boxes, anchors_per_image)
             matched_idxs = self.proposal_matcher(match_quality_matrix)
-            # get the targets corresponding GT for each proposal
-            # NB: need to clamp the indices because we can have a single
-            # GT in the image, and matched_idxs can be -2, which goes
-            # out of bounds
+
             matched_gt_boxes_per_image = gt_boxes[matched_idxs.clamp(min=0)]
 
             labels_per_image = matched_idxs >= 0
@@ -212,10 +210,15 @@ class RPN(nn.Module):
                                                   num_anchors_per_level)
         losses = {}
         if self.training:
-            labels, matched_gt_boxes = self.assign_targets_to_anchors(anchors, targets)
-            regression_targets = self.box_coder.encode(matched_gt_boxes, anchors)
-            loss_objectness, loss_rpn_box_reg = self.compute_loss(objectness, pred_bbox_deltas, \
-                                                    labels, regression_targets)
+            try:
+                labels, matched_gt_boxes = self.assign_targets_to_anchors(anchors, targets)
+                regression_targets = self.box_coder.encode(matched_gt_boxes, anchors)
+                loss_objectness, loss_rpn_box_reg = self.compute_loss(objectness, pred_bbox_deltas, labels, regression_targets)
+            except:
+                loss_objectness  = 0
+                loss_rpn_box_reg = 0
+                print('No gt_bbox or proposals on some one image ...')
+
             losses = {
                 "loss_objectness": loss_objectness,
                 "loss_rpn_box_reg": loss_rpn_box_reg,

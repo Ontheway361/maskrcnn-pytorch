@@ -12,24 +12,20 @@ import torch.nn.functional as F
 
 import utils.bbox_utils as box_ops
 import utils.misc as misc_nn_ops
-import utils.rpn_utils as det_utils
+import utils.rpn_utils as rpn_utils
 import utils.roi_align as roi_align
 from modules.cfg import RoI_CFG
-from utils.poolers import MultiScaleRoIAlign
+from utils.roi_utils import MultiScaleRoIAlign
 
 from IPython import embed
 
 
 class TwoMLPHead(nn.Module):
-    """
-    Standard heads for FPN-based models
 
-    Arguments:
-        in_channels (int): number of input channels
-        representation_size (int): size of the intermediate representation
-    """
+    ''' Standard heads for FPN-based models '''
 
     def __init__(self, in_channels, representation_size):
+
         super(TwoMLPHead, self).__init__()
 
         self.fc6 = nn.Linear(in_channels, representation_size)
@@ -44,20 +40,22 @@ class TwoMLPHead(nn.Module):
 
 
 class Predictor(nn.Module):
-    """
+    '''
     Standard classification + bounding box regression layers for Fast R-CNN.
 
     Arguments:
         in_channels (int): number of input channels
         num_classes (int): number of output classes (including background)
-    """
+    '''
 
     def __init__(self, in_channels, num_classes):
+
         super(Predictor, self).__init__()
         self.cls_score = nn.Linear(in_channels, num_classes)
         self.bbox_pred = nn.Linear(in_channels, num_classes * 4)
 
     def forward(self, x):
+
         if x.ndimension() == 4:
             assert list(x.shape[2:]) == [1, 1]
         x = x.flatten(start_dim=1)
@@ -76,12 +74,12 @@ class RoI(nn.Module):
 
         self.box_similarity = box_ops.box_iou
         # assign ground-truth boxes for each proposal
-        self.proposal_matcher = det_utils.Matcher(
+        self.proposal_matcher = rpn_utils.Matcher(
                                     RoI_CFG['fg_iou_thresh'],
                                     RoI_CFG['bg_iou_thresh'],
                                     allow_low_quality_matches=False)
 
-        self.fg_bg_sampler = det_utils.BalancedPositiveNegativeSampler(
+        self.fg_bg_sampler = rpn_utils.BalancedPositiveNegativeSampler(
                                  RoI_CFG['batch_size_per_image'],
                                  RoI_CFG['positive_fraction'])
 
@@ -89,7 +87,7 @@ class RoI(nn.Module):
         self.score_thresh = RoI_CFG['score_thresh']
         self.detections_per_img = RoI_CFG['detections_per_img']
 
-        self.box_coder = det_utils.BoxCoder(RoI_CFG['reg_weights'])
+        self.box_coder = rpn_utils.BoxCoder(RoI_CFG['reg_weights'])
 
         self.box_roi_pool  = MultiScaleRoIAlign(
                                  RoI_CFG['featmap_names'],
@@ -109,8 +107,6 @@ class RoI(nn.Module):
         assert targets is not None
         assert all("boxes" in t for t in targets)
         assert all("labels" in t for t in targets)
-        if self.has_mask:
-            assert all("masks" in t for t in targets)
 
 
     def add_gt_proposals(self, proposals, gt_boxes):
@@ -123,9 +119,10 @@ class RoI(nn.Module):
 
 
     def assign_targets_to_proposals(self, proposals, gt_boxes, gt_labels):
-        matched_idxs = []
-        labels = []
+
+        matched_idxs, labels = [], []
         for proposals_in_image, gt_boxes_in_image, gt_labels_in_image in zip(proposals, gt_boxes, gt_labels):
+
             match_quality_matrix = self.box_similarity(gt_boxes_in_image, proposals_in_image)
             matched_idxs_in_image = self.proposal_matcher(match_quality_matrix)
 
@@ -144,17 +141,20 @@ class RoI(nn.Module):
 
             matched_idxs.append(clamped_matched_idxs_in_image)
             labels.append(labels_in_image)
+
         return matched_idxs, labels
 
 
     def subsample(self, labels):
+
         sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
         sampled_inds = []
-        for img_idx, (pos_inds_img, neg_inds_img) in enumerate(
-            zip(sampled_pos_inds, sampled_neg_inds)
-        ):
+
+        for img_idx, (pos_inds_img, neg_inds_img) in enumerate(zip(sampled_pos_inds, sampled_neg_inds)):
+
             img_sampled_inds = torch.nonzero(pos_inds_img | neg_inds_img).squeeze(1)
             sampled_inds.append(img_sampled_inds)
+
         return sampled_inds
 
 
@@ -162,6 +162,7 @@ class RoI(nn.Module):
         ''' '''
 
         self.check_targets(targets)
+
         gt_boxes  = [t["boxes"] for t in targets]
         gt_labels = [t["labels"] for t in targets]
 
@@ -170,11 +171,14 @@ class RoI(nn.Module):
 
         # get matching gt indices for each proposal
         matched_idxs, labels = self.assign_targets_to_proposals(proposals, gt_boxes, gt_labels)
+
         # sample a fixed proportion of positive-negative proposals
         sampled_inds = self.subsample(labels)
         matched_gt_boxes = []
         num_images = len(proposals)
+
         for img_id in range(num_images):
+
             img_sampled_inds = sampled_inds[img_id]
             proposals[img_id] = proposals[img_id][img_sampled_inds]
             labels[img_id] = labels[img_id][img_sampled_inds]
@@ -182,10 +186,13 @@ class RoI(nn.Module):
             matched_gt_boxes.append(gt_boxes[img_id][matched_idxs[img_id]])
 
         regression_targets = self.box_coder.encode(matched_gt_boxes, proposals)
+
         return proposals, matched_idxs, labels, regression_targets
 
 
     def postprocess_detections(self, class_logits, box_regression, proposals, image_shapes):
+        ''' Post-process for prediction '''
+
         device = class_logits.device
         num_classes = class_logits.shape[-1]
 
@@ -198,10 +205,9 @@ class RoI(nn.Module):
         pred_boxes = pred_boxes.split(boxes_per_image, 0)
         pred_scores = pred_scores.split(boxes_per_image, 0)
 
-        all_boxes = []
-        all_scores = []
-        all_labels = []
+        all_boxes, all_scores, all_labels = [], [], []
         for boxes, scores, image_shape in zip(pred_boxes, pred_scores, image_shapes):
+
             boxes = box_ops.clip_boxes_to_image(boxes, image_shape)
 
             # create labels for each prediction
@@ -228,6 +234,7 @@ class RoI(nn.Module):
 
             # non-maximum suppression, independently done per class
             keep = box_ops.batched_nms(boxes, scores, labels, self.nms_thresh)
+
             # keep only topk scoring predictions
             keep = keep[:self.detections_per_img]
             boxes, scores, labels = boxes[keep], scores[keep], labels[keep]
@@ -238,28 +245,16 @@ class RoI(nn.Module):
 
         return all_boxes, all_scores, all_labels
 
+
     @staticmethod
     def fastrcnn_loss(class_logits, box_regression, labels, regression_targets):
-        """
-        Computes the loss for Faster R-CNN.
-
-        Arguments:
-            class_logits (Tensor)
-            box_regression (Tensor)
-
-        Returns:
-            classification_loss (Tensor)
-            box_loss (Tensor)
-        """
+        ''' Computes the loss for Faster R-CNN '''
 
         labels = torch.cat(labels, dim=0)
         regression_targets = torch.cat(regression_targets, dim=0)
 
         classification_loss = F.cross_entropy(class_logits, labels)
 
-        # get indices that correspond to the regression targets for
-        # the corresponding ground truth labels, to be used with
-        # advanced indexing
         sampled_pos_inds_subset = torch.nonzero(labels > 0).squeeze(1)
         labels_pos = labels[sampled_pos_inds_subset]
         N, num_classes = class_logits.shape
@@ -281,14 +276,19 @@ class RoI(nn.Module):
             proposals, matched_idxs, labels, regression_targets = self.select_training_samples(proposals, targets)
 
         box_features = self.box_roi_pool(features, proposals, image_shapes)
+
         box_features = self.box_head(box_features)
         class_logits, box_regression = self.box_predictor(box_features)
 
         result, losses = [], {}
+
         if self.training:
             loss_classifier, loss_box_reg = self.fastrcnn_loss(
                 class_logits, box_regression, labels, regression_targets)
-            losses = dict(loss_classifier=loss_classifier, loss_box_reg=loss_box_reg)
+            losses = {
+                'loss_classifier' : loss_classifier,
+                'loss_box_reg' : loss_box_reg,
+            }
         else:
             boxes, scores, labels = self.postprocess_detections(class_logits, box_regression, proposals, image_shapes)
             for i in range(len(boxes)):

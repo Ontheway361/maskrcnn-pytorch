@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-@author: lujie
-Created on 2019/07/05
-"""
-
 import copy
 import bisect
 import numpy as np

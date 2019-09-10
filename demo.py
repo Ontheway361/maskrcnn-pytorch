@@ -13,7 +13,7 @@ import torch
 from PIL import Image
 import matplotlib.pyplot as plt
 import torchvision.transforms as T
-from detectlib import fasterrcnn_resnet50_fpn
+from detect_lib import fasterrcnn_resnet50_fpn
 from IPython import embed
 
 

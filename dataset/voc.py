@@ -18,7 +18,7 @@ else:
     import xml.etree.ElementTree as ET
 
 from PIL import Image
-from .utils import download_url, check_integrity
+from .download_utils import download_url, check_integrity
 
 DATASET_YEAR_DICT = {
     '2012': {

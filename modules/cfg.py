@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on 2019/09/08
-@author: relu
-"""
 
 RPN_CFG = {
     'pre_nms_top_n_train'  : 2000,
@@ -23,9 +19,9 @@ RoI_CFG = {
     'score_thresh'         : 0.05,
     'nms_thresh'           : 0.5,
     'detections_per_img'   : 100,
-    'fg_iou_thresh'        : 0.5,
+    'fg_iou_thresh'        : 0.5,   # BUG
     'bg_iou_thresh'        : 0.5,
-    'batch_size_per_image' : 512,
+    'batch_size_per_image' : 512,    # Core
     'positive_fraction'    : 0.25,
     'reg_weights'          : (10., 10., 5., 5.),
     'featmap_names'        : [0, 1, 2, 3],       # according to backbone

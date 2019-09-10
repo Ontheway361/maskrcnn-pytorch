@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-Created on 2019/07/05
-@author: lujie
-"""
-
 import os
 import gzip
 import errno

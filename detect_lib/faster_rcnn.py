@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-Created on 2019/09/08
-@author: relu
-"""
 
 import torch
 from torch import nn
@@ -14,14 +10,14 @@ from collections import OrderedDict
 class FasterRCNN(nn.Module):
     ''' Outline of FasterRCNN '''
 
-    def __init__(self, backbone, rpn, roi_heads, transform):
+    def __init__(self, backbone, rpn, roi, transform):
 
         super(FasterRCNN, self).__init__()
 
         self.transform = transform
         self.backbone  = backbone
         self.rpn       = rpn
-        self.roi_heads = roi_heads
+        self.roi_heads = roi
 
 
     def forward(self, images, targets=None):

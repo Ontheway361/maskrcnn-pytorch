@@ -25,18 +25,12 @@ def _cat(tensors, dim=0):
 
 
 def convert_boxes_to_roi_format(boxes):
+
     concat_boxes = _cat([b for b in boxes], dim=0)
-    ids = _cat(
-        [
-            torch.full_like(b[:, :1], i)
-            for i, b in enumerate(boxes)
-        ],
-        dim=0,
-    )
+    ids = _cat([torch.full_like(b[:, :1], i) for i, b in enumerate(boxes)], dim=0)
     rois = torch.cat([ids, concat_boxes], dim=1)
+
     return rois
-
-
 
 _C = None
 def _lazy_import():

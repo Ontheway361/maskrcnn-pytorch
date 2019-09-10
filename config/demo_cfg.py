@@ -3,7 +3,7 @@
 
 """
 @author: lujie
-Created on 2019/07/05
+Created on 2019/09/08
 """
 
 import os
@@ -15,7 +15,7 @@ root_path = '/home/lujie/Documents/deep_learning'   # local-pc
 data_path = os.path.join(root_path, 'benchmark_images/coco')
 save_path = os.path.join(root_path, 'saved_model/detection')
 
-def parameters_setting():
+def demo_setting():
 
     parser = argparse.ArgumentParser('Config for coco_runner ')
 

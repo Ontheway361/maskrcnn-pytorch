@@ -7,13 +7,13 @@ Created on 2019/09/08
 """
 
 from torch import nn
-from basenets import resnet
 from collections import OrderedDict
-from detectlib import FasterRCNN
+from detect_lib import FasterRCNN
 from modules import FPN, RPN, RoI
 from utils.misc import FrozenBatchNorm2d
-
 from utils.transform import GeneralTrans
+
+from basenets import resnet
 from basenets._utils import IntermediateLayerGetter
 from basenets.utils import load_state_dict_from_url
 
@@ -40,14 +40,14 @@ class BackboneWithFPN(nn.Sequential):
 
 class FasterRCNN_Resnet(FasterRCNN):
 
-    def __init__(self, num_classes, basenet = 'resnet50', pretrain = True):
+    def __init__(self, num_classes, basenet = 'resnet50', with_fpn = True):
 
         gener_trans = GeneralTrans()
-        backbone    = self._backbone(basenet)
+        backbone    = self._backbone(basenet, with_fpn)
         rpn         = RPN(backbone.out_channels)
-        roi_heads   = RoI(num_classes, backbone.out_channels)
-        
-        super(FasterRCNN_Resnet, self).__init__(backbone, rpn, roi_heads, gener_trans)
+        roi         = RoI(num_classes, backbone.out_channels)
+
+        super(FasterRCNN_Resnet, self).__init__(backbone, rpn, roi, gener_trans)
 
 
     def _backbone(self, basenet, with_fpn = True):

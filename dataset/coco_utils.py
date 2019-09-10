@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-Created on 2019/07/05
-@author: lujie
-"""
-
 import os
 import copy
 import torch
@@ -13,7 +8,7 @@ import torchvision
 from PIL import Image
 import torch.utils.data
 
-import reference.transforms as T
+import dataset.transforms as T
 from pycocotools.coco import COCO
 from pycocotools import mask as coco_mask
 
@@ -212,23 +207,25 @@ def get_coco_api_from_dataset(dataset):
 
 
 class CocoDetection(torchvision.datasets.CocoDetection):
+
     def __init__(self, img_folder, ann_file, transforms):
+
         super(CocoDetection, self).__init__(img_folder, ann_file)
         self._transforms = transforms
 
     def __getitem__(self, idx):
+
         img, target = super(CocoDetection, self).__getitem__(idx)
         image_id = self.ids[idx]
         target = dict(image_id=image_id, annotations=target)
         if self._transforms is not None:
             img, target = self._transforms(img, target)
+
         return img, target
 
 
 def get_coco(root, image_set, transforms, mode='instances'):
-    '''
-    mode : {instances, captions, person_keypoints}
-    '''
+    ''' mode : {instances, captions, person_keypoints} '''
 
     anno_file_template = "{}_{}2017.json"
     PATHS = {
