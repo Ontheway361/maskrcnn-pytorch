@@ -23,10 +23,15 @@ RoI_CFG = {
     'bg_iou_thresh'        : 0.5,
     'batch_size_per_image' : 512,    # Core
     'positive_fraction'    : 0.25,
-    'reg_weights'          : (10., 10., 5., 5.),
+    'reg_weights'          : (10., 10., 5., 5.), # TODO
     'featmap_names'        : [0, 1, 2, 3],       # according to backbone
     'representation_size'  : 1024,               # TODO
+    'mask_layers'          : (256, 256, 256, 256),
+    'mask_pred_in_channels': 256,
+    'mask_dim_reduced'     : 256,
+    'mask_dilation'        : 1,
     'output_size'          : 7,
+    'mask_o_size'          : 14,
     'sampling_ratio'       : 2,
 }
 

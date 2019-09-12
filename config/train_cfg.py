@@ -28,7 +28,8 @@ def train_setting():
     # about model
     parser.add_argument('--basenet',   type=str,  default='resnet50')
     parser.add_argument('--with_fpn',  type=str,  default=True)
-    parser.add_argument('--checkpoint',type=str,  default='fasterrcnn_resnet50_fpn_coco_org.pth')
+    parser.add_argument('--checkpoint',type=str,  default='maskrcnn_resnet50_fpn_coco_org.pth',
+                        choices=['fasterrcnn_resnet50_fpn_coco_org.pth', 'maskrcnn_resnet50_fpn_coco_org.pth'])
     parser.add_argument("--test_only", type=bool, default=False)
 
     # about hardware

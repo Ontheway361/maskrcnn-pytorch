@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-Created on 2019/09/08
-@author: relu
-"""
-
 import math
 import torch
 import random
@@ -179,6 +174,30 @@ class GeneralTrans(nn.Module):
         return image_list, targets
 
 
+def expand_boxes(boxes, scale):
+    w_half = (boxes[:, 2] - boxes[:, 0]) * .5
+    h_half = (boxes[:, 3] - boxes[:, 1]) * .5
+    x_c = (boxes[:, 2] + boxes[:, 0]) * .5
+    y_c = (boxes[:, 3] + boxes[:, 1]) * .5
+
+    w_half *= scale
+    h_half *= scale
+
+    boxes_exp = torch.zeros_like(boxes)
+    boxes_exp[:, 0] = x_c - w_half
+    boxes_exp[:, 2] = x_c + w_half
+    boxes_exp[:, 1] = y_c - h_half
+    boxes_exp[:, 3] = y_c + h_half
+    return boxes_exp
+
+
+def expand_masks(mask, padding):
+    M = mask.shape[-1]
+    scale = float(M + 2 * padding) / M
+    padded_mask = torch.nn.functional.pad(mask, (padding,) * 4)
+    return padded_mask, scale
+
+
 def paste_mask_in_image(mask, box, im_h, im_w):
     TO_REMOVE = 1
     w = int(box[2] - box[0] + TO_REMOVE)
@@ -203,3 +222,20 @@ def paste_mask_in_image(mask, box, im_h, im_w):
         (y_0 - box[1]):(y_1 - box[1]), (x_0 - box[0]):(x_1 - box[0])
     ]
     return im_mask
+
+
+def paste_masks_in_image(masks, boxes, img_shape, padding=1):
+
+    masks, scale = expand_masks(masks, padding=padding)
+    boxes = expand_boxes(boxes, scale).to(dtype=torch.int64).tolist()
+    # im_h, im_w = img_shape.tolist()
+    im_h, im_w = img_shape
+    res = [
+        paste_mask_in_image(m[0], b, im_h, im_w)
+        for m, b in zip(masks, boxes)
+    ]
+    if len(res) > 0:
+        res = torch.stack(res, dim=0)[:, None]
+    else:
+        res = masks.new_empty((0, 1, im_h, im_w))
+    return res

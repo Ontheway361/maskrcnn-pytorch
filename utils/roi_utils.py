@@ -4,6 +4,8 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
+import utils.misc as misc_nn_ops
+from collections import OrderedDict
 from utils.bbox_utils import box_area
 from utils.roi_align  import roi_align
 
@@ -151,3 +153,88 @@ class MultiScaleRoIAlign(nn.Module):
                 spatial_scale=scale, sampling_ratio=self.sampling_ratio)
 
         return result
+
+
+class FeatureTrans(nn.Module):
+
+    ''' Standard heads for FPN-based models '''
+
+    def __init__(self, in_channels, representation_size):
+
+        super(FeatureTrans, self).__init__()
+
+        self.fc6 = nn.Linear(in_channels, representation_size)
+        self.fc7 = nn.Linear(representation_size, representation_size)
+
+    def forward(self, x):
+
+        x = x.flatten(start_dim=1)
+        x = F.relu(self.fc6(x))
+        x = F.relu(self.fc7(x))
+        return x
+
+
+class BoxPredictor(nn.Module):
+    '''
+    Standard classification + bounding box regression layers for Fast R-CNN.
+
+    Arguments:
+        in_channels (int): number of input channels
+        num_classes (int): number of output classes (including background)
+    '''
+
+    def __init__(self, in_channels, num_classes):
+
+        super(BoxPredictor, self).__init__()
+        self.cls_score = nn.Linear(in_channels, num_classes)
+        self.bbox_pred = nn.Linear(in_channels, num_classes * 4)
+
+    def forward(self, x):
+
+        if x.ndimension() == 4:
+            assert list(x.shape[2:]) == [1, 1]
+        x = x.flatten(start_dim=1)
+        scores = self.cls_score(x)
+        bbox_deltas = self.bbox_pred(x)
+
+        return scores, bbox_deltas
+
+
+class MaskHeads(nn.Sequential):
+    def __init__(self, in_channels, layers, dilation):
+        """
+        Arguments:
+            num_classes (int): number of output classes
+            input_size (int): number of channels of the input once it's flattened
+            representation_size (int): size of the intermediate representation
+        """
+        d = OrderedDict()
+        next_feature = in_channels
+        for layer_idx, layer_features in enumerate(layers, 1):
+
+            d["mask_fcn{}".format(layer_idx)] = misc_nn_ops.Conv2d(
+                next_feature, layer_features, kernel_size=3,
+                stride=1, padding=dilation, dilation=dilation)
+            d["relu{}".format(layer_idx)] = nn.ReLU(inplace=True)
+            next_feature = layer_features
+
+        super(MaskHeads, self).__init__(d)
+
+        for name, param in self.named_parameters():
+            if "weight" in name:
+                nn.init.kaiming_normal_(param, mode="fan_out", nonlinearity="relu")
+
+
+class MaskPredictor(nn.Sequential):
+
+    def __init__(self, in_channels, dim_reduced, num_classes):
+
+        super(MaskPredictor, self).__init__(OrderedDict([
+            ("conv5_mask", misc_nn_ops.ConvTranspose2d(in_channels, dim_reduced, 2, 2, 0)),
+            ("relu", nn.ReLU(inplace=True)),
+            ("mask_fcn_logits", misc_nn_ops.Conv2d(dim_reduced, num_classes, 1, 1, 0)),
+        ]))
+
+        for name, param in self.named_parameters():
+            if "weight" in name:
+                nn.init.kaiming_normal_(param, mode="fan_out", nonlinearity="relu")

@@ -1,50 +1,43 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-
-import torch
 from torch import nn
+from modules import RPN, RoI
 from collections import OrderedDict
+from detect_lib import GeneralizedRCNN
+from utils.transform import GeneralTrans
+from utils.backbone_utils import build_backbone
+from basenets.utils import load_state_dict_from_url
+
+from IPython import embed
 
 
-class FasterRCNN(nn.Module):
-    ''' Outline of FasterRCNN '''
-
-    def __init__(self, backbone, rpn, roi, transform):
-
-        super(FasterRCNN, self).__init__()
-
-        self.transform = transform
-        self.backbone  = backbone
-        self.rpn       = rpn
-        self.roi_heads = roi
+__all__ = ["fasterrcnn_resnet50_fpn"]
 
 
-    def forward(self, images, targets=None):
+class FasterRCNN_Resnet(GeneralizedRCNN):
 
-        if self.training and targets is None:
-            raise ValueError("In training mode, targets should be passed")
+    def __init__(self, num_classes, basenet = 'resnet50', with_fpn = True):
 
-        original_image_sizes = [img.shape[-2:] for img in images]
+        gener_trans = GeneralTrans()
+        backbone    = build_backbone(basenet, with_fpn)
+        rpn         = RPN(backbone.out_channels)
+        roi         = RoI(num_classes, backbone.out_channels)
 
-        images, targets = self.transform(images, targets)
+        super(FasterRCNN_Resnet, self).__init__(backbone, rpn, roi, gener_trans)
 
-        features = self.backbone(images.tensors)
 
-        if isinstance(features, torch.Tensor):
-            features = OrderedDict([(0, features)])
 
-        proposals, proposal_losses = self.rpn(images, features, targets)
+def fasterrcnn_resnet50_fpn(num_classes = 91, basenet = 'resnet50', with_fpn = True, pretrained = True):
 
-        detections, detector_losses = self.roi_heads(features, proposals, images.image_sizes, targets)
+    if pretrained:
+        basenet = 'resnet50'
+        cp_urls = 'https://download.pytorch.org/models/fasterrcnn_resnet50_fpn_coco-258fb6c6.pth'
 
-        detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)
+    model = FasterRCNN_Resnet(num_classes, basenet)
 
-        losses = {}
-        losses.update(detector_losses)
-        losses.update(proposal_losses)
+    if pretrained:
+        state_dict = load_state_dict_from_url(cp_urls, progress=True)
+        model.load_state_dict(state_dict)
 
-        if self.training:
-            return losses
-
-        return detections
+    return model

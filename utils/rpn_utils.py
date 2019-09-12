@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-Created on 2019/09/08
-@author: relu
-"""
 
 from __future__ import division
 import math

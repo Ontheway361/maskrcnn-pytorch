@@ -9,66 +9,21 @@ Created on 2019/09/08
 import torch
 from torch import nn
 import torch.nn.functional as F
-
 import utils.bbox_utils as box_ops
-import utils.misc as misc_nn_ops
 import utils.rpn_utils as rpn_utils
-import utils.roi_align as roi_align
+import utils.roi_utils as roi_utils
+
 from modules.cfg import RoI_CFG
-from utils.roi_utils import MultiScaleRoIAlign
+from utils.roi_align import roi_align
 
 from IPython import embed
 
 
-class TwoMLPHead(nn.Module):
-
-    ''' Standard heads for FPN-based models '''
-
-    def __init__(self, in_channels, representation_size):
-
-        super(TwoMLPHead, self).__init__()
-
-        self.fc6 = nn.Linear(in_channels, representation_size)
-        self.fc7 = nn.Linear(representation_size, representation_size)
-
-    def forward(self, x):
-
-        x = x.flatten(start_dim=1)
-        x = F.relu(self.fc6(x))
-        x = F.relu(self.fc7(x))
-        return x
-
-
-class Predictor(nn.Module):
-    '''
-    Standard classification + bounding box regression layers for Fast R-CNN.
-
-    Arguments:
-        in_channels (int): number of input channels
-        num_classes (int): number of output classes (including background)
-    '''
-
-    def __init__(self, in_channels, num_classes):
-
-        super(Predictor, self).__init__()
-        self.cls_score = nn.Linear(in_channels, num_classes)
-        self.bbox_pred = nn.Linear(in_channels, num_classes * 4)
-
-    def forward(self, x):
-
-        if x.ndimension() == 4:
-            assert list(x.shape[2:]) == [1, 1]
-        x = x.flatten(start_dim=1)
-        scores = self.cls_score(x)
-        bbox_deltas = self.bbox_pred(x)
-
-        return scores, bbox_deltas
-
-
 class RoI(nn.Module):
 
+    ''' Pipeline of RoI module '''
 
-    def __init__(self, num_classes, out_channels):
+    def __init__(self, num_classes, out_channels, task = 'detect'):
 
         super(RoI, self).__init__()
 
@@ -89,16 +44,45 @@ class RoI(nn.Module):
 
         self.box_coder = rpn_utils.BoxCoder(RoI_CFG['reg_weights'])
 
-        self.box_roi_pool  = MultiScaleRoIAlign(
+        self.box_roi_pool  = roi_utils.MultiScaleRoIAlign(
                                  RoI_CFG['featmap_names'],
                                  RoI_CFG['output_size'],
                                  RoI_CFG['sampling_ratio'])
 
-        self.box_head      = TwoMLPHead(
+        self.box_head      = roi_utils.FeatureTrans(
                                  out_channels * self.box_roi_pool.output_size[0] ** 2,
                                  RoI_CFG['representation_size'])
 
-        self.box_predictor = Predictor(RoI_CFG['representation_size'], num_classes)
+        self.box_predictor = roi_utils.BoxPredictor(RoI_CFG['representation_size'], num_classes)
+
+        self.mask_roi_pool = None
+        self.mask_head     = None
+        self.mask_predictor= None
+
+        if task == 'segment':
+            self.mask_roi_pool = roi_utils.MultiScaleRoIAlign(
+                                     RoI_CFG['featmap_names'],
+                                     RoI_CFG['mask_o_size'],
+                                     RoI_CFG['sampling_ratio'])
+
+            self.mask_head     = roi_utils.MaskHeads(
+                                     out_channels,
+                                     RoI_CFG['mask_layers'],
+                                     RoI_CFG['mask_dilation'])
+
+            self.mask_predictor = roi_utils.MaskPredictor(
+                                      RoI_CFG['mask_pred_in_channels'],
+                                      RoI_CFG['mask_dim_reduced'],
+                                      num_classes)
+
+
+    @property
+    def has_mask(self):
+        if not (self.mask_roi_pool and \
+                self.mask_head and \
+                self.mask_predictor):
+            return False
+        return True
 
 
     def check_targets(self, targets):
@@ -107,6 +91,8 @@ class RoI(nn.Module):
         assert targets is not None
         assert all("boxes" in t for t in targets)
         assert all("labels" in t for t in targets)
+        if self.has_mask:
+            assert all("masks" in t for t in targets)
 
 
     def add_gt_proposals(self, proposals, gt_boxes):
@@ -270,6 +256,83 @@ class RoI(nn.Module):
         return classification_loss, box_loss
 
 
+    @staticmethod
+    def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs):
+        """
+        Arguments:
+            proposals (list[BoxList])
+            mask_logits (Tensor)
+            targets (list[BoxList])
+
+        Return:
+            mask_loss (Tensor): scalar tensor containing the loss
+        """
+
+        def project_masks_on_boxes(gt_masks, boxes, matched_idxs, M):
+            """
+            Given segmentation masks and the bounding boxes corresponding
+            to the location of the masks in the image, this function
+            crops and resizes the masks in the position defined by the
+            boxes. This prepares the masks for them to be fed to the
+            loss computation as the targets.
+            """
+            matched_idxs = matched_idxs.to(boxes)
+            rois = torch.cat([matched_idxs[:, None], boxes], dim=1)
+            gt_masks = gt_masks[:, None].to(rois)
+            return roi_align(gt_masks, rois, (M, M), 1)[:, 0]
+
+        discretization_size = mask_logits.shape[-1]
+        labels = [l[idxs] for l, idxs in zip(gt_labels, mask_matched_idxs)]
+        mask_targets = [
+            project_masks_on_boxes(m, p, i, discretization_size)
+            for m, p, i in zip(gt_masks, proposals, mask_matched_idxs)
+        ]
+
+        labels = torch.cat(labels, dim=0)
+        mask_targets = torch.cat(mask_targets, dim=0)
+
+        # torch.mean (in binary_cross_entropy_with_logits) doesn't
+        # accept empty tensors, so handle it separately
+        if mask_targets.numel() == 0:
+            return mask_logits.sum() * 0
+
+        mask_loss = F.binary_cross_entropy_with_logits(
+            mask_logits[torch.arange(labels.shape[0], device=labels.device), labels], mask_targets
+        )
+        return mask_loss
+
+
+    @staticmethod
+    def maskrcnn_inference(x, labels):
+        """
+        From the results of the CNN, post process the masks
+        by taking the mask corresponding to the class with max
+        probability (which are of fixed size and directly output
+        by the CNN) and return the masks in the mask field of the BoxList.
+
+        Arguments:
+            x (Tensor): the mask logits
+            labels (list[BoxList]): bounding boxes that are used as
+                reference, one for ech image
+
+        Returns:
+            results (list[BoxList]): one BoxList for each image, containing
+                the extra field mask
+        """
+        mask_prob = x.sigmoid()
+
+        # select masks coresponding to the predicted classes
+        num_masks = x.shape[0]
+        boxes_per_image = [len(l) for l in labels]
+        labels = torch.cat(labels)
+        index = torch.arange(num_masks, device=labels.device)
+        mask_prob = mask_prob[index, labels][:, None]
+
+        mask_prob = mask_prob.split(boxes_per_image, dim=0)
+
+        return mask_prob
+
+
     def forward(self, features, proposals, image_shapes, targets=None):
 
         if self.training:
@@ -293,5 +356,39 @@ class RoI(nn.Module):
             boxes, scores, labels = self.postprocess_detections(class_logits, box_regression, proposals, image_shapes)
             for i in range(len(boxes)):
                 result.append(dict(boxes=boxes[i], labels=labels[i], scores=scores[i]))
+
+        if self.has_mask:
+            mask_proposals = [p["boxes"] for p in result]
+            embed()
+            if self.training:
+                # during training, only focus on positive boxes
+                num_images, mask_proposals, pos_matched_idxs = len(proposals), [], []
+                for img_id in range(num_images):
+
+                    pos = torch.nonzero(labels[img_id] > 0).squeeze(1)
+                    mask_proposals.append(proposals[img_id][pos])
+                    pos_matched_idxs.append(matched_idxs[img_id][pos])
+
+            mask_features = self.mask_roi_pool(features, mask_proposals, image_shapes)
+            mask_features = self.mask_head(mask_features)
+            mask_logits   = self.mask_predictor(mask_features)
+
+            loss_mask = {}
+            if self.training:
+                gt_masks = [t["masks"] for t in targets]
+                gt_labels = [t["labels"] for t in targets]
+
+                loss_mask = self.maskrcnn_loss(
+                    mask_logits, mask_proposals,
+                    gt_masks, gt_labels, pos_matched_idxs)
+                loss_mask = dict(loss_mask=loss_mask)
+
+            else:
+                labels = [r["labels"] for r in result]
+                masks_probs = self.maskrcnn_inference(mask_logits, labels)
+                for mask_prob, r in zip(masks_probs, result):
+                    r["masks"] = mask_prob
+
+            losses.update(loss_mask)
 
         return result, losses
