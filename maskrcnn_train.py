@@ -150,8 +150,6 @@ class MaskTrain(object):
 
             losses = sum(loss for loss in loss_dict.values())
 
-            embed()
-
             self.optim.zero_grad()
             losses.backward()
             self.optim.step()
@@ -182,16 +180,15 @@ class MaskTrain(object):
 
             self._train_step(epoch)
 
-            # self.lr_adj.step()
-            #
-            # self._eval_step(epoch)
+            self.lr_adj.step()
+
+            self._eval_step(epoch)
 
 
     def runner(self):
 
         self._dataloader()
         self._modelloader()
-        embed()
         self._optimizer_setting()
         self._main_loop()
 

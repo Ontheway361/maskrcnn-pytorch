@@ -282,6 +282,7 @@ class RoI(nn.Module):
             return roi_align(gt_masks, rois, (M, M), 1)[:, 0]
 
         discretization_size = mask_logits.shape[-1]
+        # assign the label for each proposal
         labels = [l[idxs] for l, idxs in zip(gt_labels, mask_matched_idxs)]
         mask_targets = [
             project_masks_on_boxes(m, p, i, discretization_size)
@@ -359,7 +360,7 @@ class RoI(nn.Module):
 
         if self.has_mask:
             mask_proposals = [p["boxes"] for p in result]
-            embed()
+
             if self.training:
                 # during training, only focus on positive boxes
                 num_images, mask_proposals, pos_matched_idxs = len(proposals), [], []

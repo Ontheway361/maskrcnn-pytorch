@@ -55,7 +55,7 @@ def get_prediction(task, img_path, threshold):
 
         pred_score = list(pred[0]['scores'].detach().numpy())
         pred_t = [pred_score.index(x) for x in pred_score if x>threshold][-1]
-        masks  = (pred[0]['masks']>0.5).squeeze().detach().cpu().numpy()
+        masks  = (pred[0]['masks']>0.5).squeeze().detach().cpu().numpy()    # core-threshold
         pred_class = [COCO_INSTANCE_CATEGORY_NAMES[i] for i in list(pred[0]['labels'].numpy())]  # Get the Prediction Score
         pred_boxes = [[(i[0], i[1]), (i[2], i[3])] for i in list(pred[0]['boxes'].detach().numpy())] # Bounding boxes
         masks = masks[:pred_t+1]
@@ -136,8 +136,8 @@ def object_detection_api(img_path, threshold=0.5):
 if __name__ == '__main__':
 
     model = None
-    task  = 'detect'  # [detect, segment]
-    img_path = 'dataset/images/outdoor.jpg'
+    task  = 'segment'  # [detect, segment]
+    img_path = 'dataset/images/car.jpg'
 
     if task == 'detect':
         model = fasterrcnn_resnet50_fpn()
